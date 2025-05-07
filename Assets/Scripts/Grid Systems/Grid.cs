@@ -19,7 +19,6 @@ public class Grid : MonoBehaviour
     [SerializeField] private GameObject tileEnd;
     [SerializeField] private GameObject waypointPrefab;
 
-
     private GameObject waypointsParent;
     private GameObject tilesParent;
 
@@ -42,7 +41,7 @@ public class Grid : MonoBehaviour
         StartCoroutine(GeneratePath());
     }
 
-    private enum MovementDirection
+    public enum MovementDirection
     {
         NONE,
         LEFT,
@@ -84,7 +83,6 @@ public class Grid : MonoBehaviour
         isMapReady = true;         // Map is ready
         waypointsParent.AddComponent<Waypoints>();
 
-
         onFinishMapGeneration?.Invoke();
     }
 
@@ -119,8 +117,10 @@ public class Grid : MonoBehaviour
 
         MovementDirection currentDirection = MovementDirection.UP;
         List<MovementDirection> movementHistory = new List<MovementDirection>();
+        List<Vector2Int> pathCells = new List<Vector2Int>();
 
-        UpdateMap(curX, curY);
+        UpdateMap(curX, curY, currentDirection);
+        pathCells.Add(new Vector2Int(curX, curY));
         startPoint = grid[curX, curY].transform;
 
         movementHistory.Add(MovementDirection.NONE);
@@ -130,22 +130,24 @@ public class Grid : MonoBehaviour
         {
             ChooseDirection(ref curX, ref curY,ref currentDirection, movementHistory);
 
-            //Debug.Log($"NextDir: {currentDirection}");
-
             if (curY <= mapHeight - 2)
             {
-                UpdateMap(curX, curY);
+                UpdateMap(curX, curY, currentDirection);
+                pathCells.Add(new Vector2Int(curX, curY));
+
                 movementHistory.Add(currentDirection);
             }
 
             yield return new WaitForSeconds(0.05f);
         }
 
-        UpdateMap(curX, curY);
+        UpdateMap(curX, curY, MovementDirection.UP);
+        pathCells.Add(new Vector2Int(curX, curY));
+
         movementHistory.Add(MovementDirection.UP);
         movementHistory.RemoveAt(0);
 
-        IterateThroughtPathAndInstantiateCells(startX, movementHistory);
+        IterateThroughtPathAndInstantiateCells(pathCells);
 
         PostGeneration();
     }
@@ -264,14 +266,13 @@ public class Grid : MonoBehaviour
             return true;
         }
 
-    private void UpdateMap(int mapX, int mapY)
+    private void UpdateMap(int mapX, int mapY, MovementDirection direction)
     {
         grid[mapX, mapY].transform.position = new Vector3(grid[mapX, mapY].transform.position.x, -0.3f, grid[mapX, mapY].transform.position.z);
         grid[mapX, mapY].isPath = true;
+        grid[mapX, mapY].direction = direction;
         grid[mapX, mapY].renderer.material.color = new Color(255, 255, 0);
         GenerateWaypoint(mapX, mapY);
-
-
     }
 
     void GenerateWaypoint(int mapX, int mapY)
@@ -281,46 +282,32 @@ public class Grid : MonoBehaviour
         waypointObject.transform.parent = waypointsParent.transform;
     }
 
-    void IterateThroughtPathAndInstantiateCells(int x ,List<MovementDirection> movementHistory)
+    void IterateThroughtPathAndInstantiateCells(List<Vector2Int> pathCells)
     {
-        int y = 0;
-
-        for (int i = 0; i < movementHistory.Count-1; i++)
+        for (int i = 0; i < pathCells.Count; i++)
         {
-            float rotation = 0;
-            GameObject tileToSet = GetTileToAndRotationSet(movementHistory, i, ref rotation);
-            InstantiateCell(x, y, tileToSet, rotation);
+            int currentX = pathCells[i].x;
+            int currentY = pathCells[i].y;
+            MovementDirection currentDirection = grid[currentX, currentY].direction;
 
-            switch (movementHistory[i])
+            if (i == 0)
             {
-                case MovementDirection.UP:
-                    if (movementHistory[i + 1] == MovementDirection.UP)
-                        y++;
-                    else if (movementHistory[i + 1] == MovementDirection.LEFT)
-                        x--;
-                    else if (movementHistory[i + 1] == MovementDirection.RIGHT)
-                        x++;
-                    break;
-                case MovementDirection.LEFT:
-                    if (movementHistory[i + 1] == MovementDirection.LEFT)
-                        x--;
-                    if (movementHistory[i + 1] == MovementDirection.UP)
-                        y++;
-                    else if (movementHistory[i + 1] == MovementDirection.DOWN)
-                        y--;
-                    break;
-                case MovementDirection.RIGHT:
-                    if (movementHistory[i + 1] == MovementDirection.RIGHT)
-                        x++;
-                    if (movementHistory[i + 1] == MovementDirection.UP)
-                        y++;
-                    else if (movementHistory[i + 1] == MovementDirection.DOWN)
-                        y--;
-                    break;
+                InstantiateCell(currentX, currentY, tileStart, 0);
+            } else if (i == pathCells.Count - 1)
+            {
+                InstantiateCell(currentX, currentY, tileEnd, 180);
+            } else
+            {
+                float rotation = 0;
+                int nextX = pathCells[i + 1].x;
+                int nextY = pathCells[i + 1].y;
+                MovementDirection nextDirection = grid[nextX, nextY].direction;
+
+                GameObject tileToSet = GetTileToAndRotationSet(currentDirection, nextDirection, ref rotation);
+                InstantiateCell(currentX, currentY, tileToSet, rotation);
+
             }
         }
-
-        InstantiateCell(x, y, tileEnd, -180f);
     }
 
     void InstantiateCell(int mapX, int mapY, GameObject tileToSet, float rotation)
@@ -331,8 +318,6 @@ public class Grid : MonoBehaviour
         if (!grid[mapX, mapY].isPath)
             Debug.Log($"ERROR");
 
-        //grid[mapX, mapY].transform.position = new Vector3(grid[mapX, mapY].transform.position.x, -0.3f, grid[mapX, mapY].transform.position.z);
-
         GameObject newCell = Instantiate(tileToSet, new Vector3(mapX, 0, mapY), Quaternion.identity);
         newCell.transform.parent = tilesParent.transform;
 
@@ -341,40 +326,33 @@ public class Grid : MonoBehaviour
 
         grid[mapX, mapY].renderer = newCell.GetComponent<Renderer>();
         grid[mapX, mapY].transform = newCell.transform;
-        //grid[mapX, mapY].isPath = true;
 
         if(tileToSet == tileEnd)
             endPoint = newCell;
     }
 
-    GameObject GetTileToAndRotationSet(List<MovementDirection> movementHistory, int index, ref float rotation)
+    GameObject GetTileToAndRotationSet(MovementDirection currentTileDirection, MovementDirection nextTileDirection, ref float rotation)
     {
-        if (index == 0)
-            return tileStart;
-
-        MovementDirection currentDir = movementHistory[index];
-        MovementDirection nextDir = movementHistory[index + 1];
-
-        if (currentDir != nextDir)
+        if (currentTileDirection != nextTileDirection)
         {
-            switch(currentDir)
+            switch(currentTileDirection)
             {
                 case MovementDirection.UP:
-                    if (nextDir == MovementDirection.LEFT)
+                    if (nextTileDirection == MovementDirection.LEFT)
                         rotation = 180;
-                    else if (nextDir == MovementDirection.RIGHT)
+                    else if (nextTileDirection == MovementDirection.RIGHT)
                         rotation = 90;
                     break;
                 case MovementDirection.LEFT:
-                    if (nextDir == MovementDirection.UP)
+                    if (nextTileDirection == MovementDirection.UP)
                         rotation = 0;
-                    else if(nextDir == MovementDirection.DOWN)
+                    else if(nextTileDirection == MovementDirection.DOWN)
                         rotation = 90;
                     break;
                 case MovementDirection.RIGHT:
-                    if (nextDir == MovementDirection.UP)
+                    if (nextTileDirection == MovementDirection.UP)
                         rotation = -90;
-                    else if (nextDir == MovementDirection.DOWN)
+                    else if (nextTileDirection == MovementDirection.DOWN)
                         rotation = 180;
                     break;
             }
@@ -383,7 +361,7 @@ public class Grid : MonoBehaviour
         }
         else
         {
-            switch (currentDir)
+            switch (currentTileDirection)
             {
                 case MovementDirection.UP:
                 case MovementDirection.DOWN:

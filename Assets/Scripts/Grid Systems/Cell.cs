@@ -5,6 +5,7 @@ using UnityEngine;
 public class Cell
 {
     public bool isPath;
+    public Grid.MovementDirection direction;
     public Transform transform;
     public Renderer renderer;
     public bool hasBuilding;
